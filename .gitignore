@@ -1,0 +1,7 @@
+# project files
+.vscode/
+.venv/
+# Submodules
+#import/
+# generated files
+basejump_stl_cores/

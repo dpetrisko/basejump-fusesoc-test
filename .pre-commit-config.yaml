@@ -1,0 +1,15 @@
+repos:
+  - repo: https://github.com/psf/black
+    rev: 24.10.0
+    hooks:
+      - id: black
+        args:
+          - "--line-length=120"
+          - "--exclude=.venv/"
+          - "--exclude=import/"
+  - repo: https://github.com/pycqa/flake8
+    rev: 7.1.0
+    hooks:
+      - id: flake8
+        exclude: ^import/
+        additional_dependencies: [flake8-docstrings]
