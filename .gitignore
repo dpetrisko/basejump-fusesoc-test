@@ -1,0 +1,7 @@
+# project files
+.vscode/
+.venv/
+fusesoc.conf
+# generated files
+basejump_stl_cores/
+build/

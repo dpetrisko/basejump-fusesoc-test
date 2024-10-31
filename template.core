@@ -1,0 +1,35 @@
+ CAPI=2: ''
+ description: An M-input N-wide multiplexer
+ filesets:
+   rtl:
+     file_type: systemVerilogSource
+     files:
+     - bsg_misc/bsg_defines.sv:
+         is_include_file: true
+     - bsg_misc/bsg_mux.sv
+ name: bespoke-silicon-group:basejump_stl.bsg_misc:bsg_mux_test:0.1.0
+ parameters:
+   els_p:
+     datatype: int
+     paramtype: vlogparam
+   width_p:
+     datatype: int
+     paramtype: vlogparam
+ provider:
+   name: github
+   repo: basejump_stl
+   user: bespoke-silicon-group
+   version: master
+ targets:
+   lint:
+     default_tool: verilator
+     filesets: '[rtl]'
+     tools:
+       verilator:
+         mode: lint-only
+         verilator_options:
+         - -Wwarn-lint
+         - -Wwarn-style
+         - -Wno-fatal
+     toplevel: bsg_mux
+

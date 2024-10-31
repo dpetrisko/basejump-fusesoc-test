@@ -1,0 +1,13 @@
+[submodule "verilator"]
+    path = import/verilator
+    url = git@github.com:verilator/verilator
+    branch = v5.030
+[submodule "Surelog"]
+    path = import/Surelog
+    url = git@github.com:ChipsAlliance/Surelog
+    branch = v1.84
+[submodule "basejump_stl"]
+    path = import/basejump_stl
+    url = git@github.com:bespoke-silicon-group/basejump_stl.git
+    branch = v0.0.1
+
