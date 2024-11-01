@@ -26,10 +26,7 @@ def add_filesets(core_yaml, includes, packages, sources):
     rtl["files"] = include_files + package_files + source_files
     rtl["file_type"] = "systemVerilogSource"
 
-    core_yaml["filesets"] = {"rtl": {}}
-    core_yaml["filesets"]["rtl"] = {}
-    core_yaml["filesets"]["rtl"]["files"] = include_files + package_files + source_files
-    core_yaml["filesets"]["rtl"]["file_type"] = "systemVerilogSource"
+    core_yaml["filesets"] = {"rtl": rtl}
 
     return core_yaml
 
@@ -38,7 +35,11 @@ def add_parameters(core_yaml, params):
     """Add parameters to a yaml dictionary."""
     param_def = {"paramtype": "vlogparam", "datatype": "int"}
 
-    core_yaml["parameters"] = [{param[0]: param_def} for param in params]
+    core_yaml["parameters"] = {}
+    for (pname, pval) in params:
+        core_yaml["parameters"][pname] = {}
+        core_yaml["parameters"][pname]["paramtype"] = "vlogparam"
+        core_yaml["parameters"][pname]["datatype"] = "int"
 
     return core_yaml
 
@@ -51,10 +52,10 @@ def add_targets(core_yaml, toplevel, parameters):
 
     lint_target = {}
     lint_target["toplevel"] = toplevel
-    lint_target["filesets"] = "[rtl]"
+    lint_target["filesets"] = ["rtl"]
     lint_target["default_tool"] = "verilator"
     lint_target["tools"] = {"verilator": verilator_tool}
-    lint_target["parameters"] = {param[0]: param[1] for param in parameters}
+    lint_target["parameters"] = [f"{param[0]}={param[1]}" for param in parameters]
 
     core_yaml["targets"] = {"lint": lint_target}
 

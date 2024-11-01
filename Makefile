@@ -7,17 +7,18 @@ NUM_SUBMODULES ?=  $(shell ls $(IMPORT_DIR)/ | wc -l | xargs)
 ###################################################
 # Required Executables
 ###################################################
-REALPATH ?= $(if $(shell which grealpath 2>/dev/null),grealpath,realpath)
+AWK ?= awk
+AUTOCONF ?= autoconf
+CD ?= cd
 ECHO ?= $(if $(shell which gecho 2>/dev/null),gecho,echo)
-TR ?= $(if $(shell which gtr 2>/dev/null),gtr,tr)
+EGREP ?= egrep
+FUSESOC ?= fusesoc
 GIT ?= git
 PYTHON ?= python
+REALPATH ?= $(if $(shell which grealpath 2>/dev/null),grealpath,realpath)
 RMRF ?= rm -rf
-CD ?= cd
-AUTOCONF ?= autoconf
-EGREP ?= egrep
-AWK ?= awk
 SORT ?= sort
+TR ?= $(if $(shell which gtr 2>/dev/null),gtr,tr)
 
 ###################################################
 # Extra Makefile Targets
@@ -64,13 +65,12 @@ VERILATOR_BIN ?= $(VENV_DIR)/bin/verilator
 ###################################################
 # Helper Targets
 ###################################################
-%/surelog: | $(SURELOG_DIR)/.git
-	$(CD) $(SURELOG_DIR); $(VENV_ACTIVATE) && \
-		$(MAKE) release_with_python install PREFIX=$(VENV_DIR)
-		$(MAKE) install PREFIX=$(VENV_DIR)
+%/surelog: | $(VENV_SCRIPT) $(SURELOG_DIR)/.git
+	@$(CD) $(SURELOG_DIR); $(VENV_ACTIVATE) && \
+		$(MAKE) release_with_python PREFIX=$(VENV_DIR)
 
-%/verilator: | $(VERILATOR_DIR)/.git
-	$(CD) $(VERILATOR_DIR); $(VENV_ACTIVATE) && \
+%/verilator: | $(VENV_SCRIPT) $(VERILATOR_DIR)/.git
+	@$(CD) $(VERILATOR_DIR); $(VENV_ACTIVATE) && \
 		$(AUTOCONF); \
 		./configure --prefix=$(VENV_DIR); \
 		$(MAKE) all; \
@@ -86,8 +86,8 @@ VERILATOR_BIN ?= $(VENV_DIR)/bin/verilator
 
 %/bin/activate:
 	@$(ECHO) "Creating python virtual environment"
-	$(PYTHON) -m venv $(VENV_DIR)
-	$(PYTHON_RUN) -m pip install -r requirements.txt
+	@$(PYTHON) -m venv $(VENV_DIR)
+	@$(PYTHON_RUN) -m pip install -r requirements.txt
 
 ###################################################
 # User Targets
@@ -101,7 +101,9 @@ help: ## Prints this message
 
 .PHONY: setup
 setup: ## Setup the development environment
-setup: | $(VENV_SCRIPT) $(SURELOG_BIN) $(VERILATOR_BIN)
+setup:
+	@$(MAKE) $(VENV_SCRIPT)
+	@$(MAKE) $(SURELOG_BIN) $(VERILATOR_BIN)
 
 .PHONY: preview
 preview: $(VENV_SCRIPT)
@@ -114,6 +116,12 @@ gen: $(VENV_SCRIPT)
 gen: ## Generates bsg_misc cores
 	@$(ECHO) "Generating bsg_misc cores"
 	@$(PYTHON_RUN) $(TOP)/gen_core.py --cores-root=$(CORES_DIR)
+
+.PHONY: update
+update: $(VENV_SCRIPT)
+update: ## Updates the fusesoc library
+	@$(ECHO) "Updating fusesoc library"
+	@$(FUSESOC) library update
 
 .PHONY: clean
 clean: ## Cleans intermediate outputs
