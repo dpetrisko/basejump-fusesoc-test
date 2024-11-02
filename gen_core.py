@@ -7,10 +7,10 @@ import sys
 from ruamel.yaml import YAML
 
 
-def add_header(core_yaml, vendor, library, module, name, version, description):
+def add_header(core_yaml, vendor, library, name, version, description):
     """Add CAPI-2 vlnv header to a yaml dictionary."""
     core_yaml["CAPI=2"] = ""
-    core_yaml["name"] = f"{vendor}:{library}.{module}:{name}:{version}"
+    core_yaml["name"] = f"{vendor}:{library}:{name}:{version}"
     core_yaml["description"] = description
 
     return core_yaml
@@ -18,44 +18,23 @@ def add_header(core_yaml, vendor, library, module, name, version, description):
 
 def add_filesets(core_yaml, includes, packages, sources):
     """Add filesets to a yaml dictionary."""
-    include_files = [{include: {"is_include_file": True}} for include in includes]
     package_files = [package for package in packages]
-    source_files = [source for source in sources]
+    vinclude_files = [{include: {"is_include_file": True}} for include in includes if include.endswith(".svh")]
+    vsrc_files = [source for source in sources if source.endswith(".sv")]
+    cinclude_files = [{include: {"is_include_file": True}} for include in includes if include.endswith(".hpp")]
+    csrc_files = [source for source in sources if source.endswith(".cpp")]
 
     rtl = {}
-    rtl["files"] = include_files + package_files + source_files
-    rtl["file_type"] = "systemVerilogSource"
+    if vsrc_files or vinclude_files:
+        rtl["files"] = vinclude_files + package_files + vsrc_files
+        rtl["file_type"] = "systemVerilogSource"
 
-    core_yaml["filesets"] = {"rtl": rtl}
+    nonsynth = {}
+    if csrc_files or cinclude_files:
+        nonsynth["files"] = cinclude_files + csrc_files
+        nonsynth["file_type"] = "cppSource"
 
-    return core_yaml
-
-
-def add_parameters(core_yaml, params):
-    """Add parameters to a yaml dictionary."""
-    core_yaml["parameters"] = {}
-    for pname, pval in params:
-        core_yaml["parameters"][pname] = {}
-        core_yaml["parameters"][pname]["paramtype"] = "vlogparam"
-        core_yaml["parameters"][pname]["datatype"] = "int"
-
-    return core_yaml
-
-
-def add_targets(core_yaml, toplevel, parameters):
-    """Add targets to a yaml dictionary."""
-    verilator_tool = {}
-    verilator_tool["mode"] = "lint-only"
-    verilator_tool["verilator_options"] = ["-Wwarn-lint", "-Wwarn-style", "-Wno-fatal"]
-
-    lint_target = {}
-    lint_target["toplevel"] = toplevel
-    lint_target["filesets"] = ["rtl"]
-    lint_target["default_tool"] = "verilator"
-    lint_target["tools"] = {"verilator": verilator_tool}
-    lint_target["parameters"] = [f"{param[0]}={param[1]}" for param in parameters]
-
-    core_yaml["targets"] = {"lint": lint_target}
+    core_yaml["filesets"] = {"rtl": rtl, "nonsynth": nonsynth}
 
     return core_yaml
 
@@ -71,15 +50,13 @@ def add_footer(core_yaml):
     return core_yaml
 
 
-def gen_core_yaml(vlnv, description, includes, packages, sources, parameters):
+def gen_core_yaml(vlnv, description, includes, packages, sources):
     """Generate a complete CAPI-2 core yaml dictionary."""
-    [vendor, library, module, name, version] = vlnv.split(":")
+    [vendor, library, name, version] = vlnv.split(":")
 
     core_yaml = {}
-    core_yaml = add_header(core_yaml, vendor, library, module, name, version, description)
+    core_yaml = add_header(core_yaml, vendor, library, name, version, description)
     core_yaml = add_filesets(core_yaml, includes, packages, sources)
-    core_yaml = add_parameters(core_yaml, parameters)
-    core_yaml = add_targets(core_yaml, name, parameters)
     core_yaml = add_footer(core_yaml)
 
     return core_yaml
@@ -95,13 +72,43 @@ def dump_core_yaml(core_yaml, cores_root, preview):
         yaml.dump(core_yaml, sys.stdout)
         yaml_target = sys.stdout
     else:
-        [_, library_full, name, _] = core_yaml["name"].split(":")
-        [_, module] = library_full.split(".")
-        output_dir = f"{cores_root}/{module}"
-        os.makedirs(output_dir, exist_ok=True)
-        yaml_target = f"{output_dir}/{name}.core"
+        [_, _, name, _] = core_yaml["name"].split(":")
+        os.makedirs(cores_root, exist_ok=True)
+        yaml_target = f"{cores_root}/{name}.core"
         with open(yaml_target, "w") as f:
             yaml.dump(core_yaml, f)
+
+
+def extract_submodule(basejump_stl_root, submodule_root):
+    """Extract the submodule files from the basejump_stl directory."""
+    info = {
+        "root": submodule_root,
+        "incs": [],
+        "pkgs": [],
+        "srcs": [],
+        "test": [],
+        "errs": [],
+    }
+    files = []
+    for root, _, filenames in os.walk(f"{basejump_stl_root}/{submodule_root}"):
+        for filename in filenames:
+            rel_path = os.path.relpath(os.path.join(root, filename), f"{basejump_stl_root}/{submodule_root}")
+            files.append(rel_path)
+    for f in files:
+        if "nonsynth" in f:
+            info["test"].append(f)
+        elif f.endswith(".svh"):
+            info["incs"].append(f)
+        elif f.endswith("_pkg.sv"):
+            info["pkgs"].append(f)
+        elif f.endswith(".cpp"):
+            info["test"].append(f)
+        elif f.endswith(".sv"):
+            info["srcs"].append(f)
+        else:
+            info["errs"].append(f)
+
+    return info
 
 
 def main():
@@ -120,75 +127,127 @@ def main():
         help="Directory where core files will be written",
     )
 
+    parser.add_argument(
+        "--basejump-stl-root",
+        required=True,
+        help="Directory where basejump_stl is located",
+    )
+
     # Parse the arguments
     args = parser.parse_args()
     preview = args.preview
     cores_root = args.cores_root
+    basejump_stl_root = args.basejump_stl_root
 
-    core_yaml = gen_core_yaml(
-        "bespoke-silicon-group:basejump_stl:bsg_misc:bsg_abs:0.0.1",
-        "Absolute value unit",
-        ["bsg_misc/bsg_defines.sv"],
-        [],
-        ["bsg_misc/bsg_abs.sv"],
-        [("width_p", 8)],
-    )
-    dump_core_yaml(core_yaml, cores_root, preview)
+    bsg_async = extract_submodule(basejump_stl_root, "bsg_async")
+    bsg_axi = extract_submodule(basejump_stl_root, "bsg_axi")
+    bsg_cache = extract_submodule(basejump_stl_root, "bsg_cache")
+    bsg_clk_gen = extract_submodule(basejump_stl_root, "bsg_clk_gen")
+    bsg_dataflow = extract_submodule(basejump_stl_root, "bsg_dataflow")
+    bsg_dmc = extract_submodule(basejump_stl_root, "bsg_dmc")
+    bsg_link = extract_submodule(basejump_stl_root, "bsg_link")
+    bsg_mem = extract_submodule(basejump_stl_root, "bsg_mem")
+    bsg_noc = extract_submodule(basejump_stl_root, "bsg_noc")
+    bsg_tag = extract_submodule(basejump_stl_root, "bsg_tag")
+    bsg_test = extract_submodule(basejump_stl_root, "bsg_test")
 
-    core_yaml = gen_core_yaml(
-        "bespoke-silicon-group:basejump_stl:bsg_misc:bsg_adder_cin:0.0.1",
-        "Adder with carry-in",
-        ["bsg_misc/bsg_defines.sv"],
-        [],
-        ["bsg_misc/bsg_adder_cin.sv"],
-        [("width_p", 8)],
-    )
-    dump_core_yaml(core_yaml, cores_root, preview)
+    rtl_vlnv = "bespoke-silicon-group:basejump_stl:rtl:0.0.1"
+    rtl_desc = "BaseJump STL: A Standard Template Library for SystemVerilog"
+    rtl_modules = [
+        bsg_async,
+        bsg_axi,
+        bsg_cache,
+        bsg_clk_gen,
+        bsg_dataflow,
+        bsg_dmc,
+        bsg_link,
+        bsg_mem,
+        bsg_noc,
+        bsg_tag,
+    ]
 
-    core_yaml = gen_core_yaml(
-        "bespoke-silicon-group:basejump_stl:bsg_misc:bsg_adder_one_hot:0.0.1",
-        "Adder of two one-hot vectors",
-        ["bsg_misc/bsg_defines.sv"],
-        [],
-        ["bsg_misc/bsg_adder_one_hot.sv"],
-        [("width_p", 8)],
-    )
-    dump_core_yaml(core_yaml, cores_root, preview)
+    rtl_incs = []
+    rtl_pkgs = []
+    rtl_srcs = []
+    rtl_errs = []
 
-    core_yaml = gen_core_yaml(
-        "bespoke-silicon-group:basejump_stl:bsg_misc:bsg_adder_ripple_carry:0.0.1",
-        "Adder of two vectors",
-        ["bsg_misc/bsg_defines.sv"],
-        [],
-        ["bsg_misc/bsg_adder_ripple_carry.sv"],
-        [("width_p", 8)],
-    )
-    dump_core_yaml(core_yaml, cores_root, preview)
+    for module in rtl_modules:
+        rtl_incs.extend([f"{module['root']}/{f}" for f in module["incs"]])
+        rtl_pkgs.extend([f"{module['root']}/{f}" for f in module["pkgs"]])
+        rtl_srcs.extend([f"{module['root']}/{f}" for f in module["srcs"]])
+        rtl_errs.extend([f"{module['root']}/{f}" for f in module["errs"]])
 
-    core_yaml = gen_core_yaml(
-        "bespoke-silicon-group:basejump_stl:bsg_misc:bsg_arb_fixed:0.0.1",
-        "Fixed priority arbiter",
-        ["bsg_misc/bsg_defines.sv"],
-        [],
-        [
-            "bsg_misc/bsg_arb_fixed.sv",
-            "bsg_misc/bsg_priority_encode_one_hot_out.sv",
-            "bsg_misc/bsg_scan.sv",
-        ],
-        [("inputs_p", 8), ("lo_to_hi_p", 1)],
-    )
-    dump_core_yaml(core_yaml, cores_root, preview)
+    rtl_yaml = gen_core_yaml(rtl_vlnv, rtl_desc, rtl_incs, rtl_pkgs, rtl_srcs)
+    dump_core_yaml(rtl_yaml, cores_root, preview)
+
+    test_vlnv = "bespoke-silicon-group:basejump_stl:nonsynth:0.0.1"
+    test_desc = "BaseJump STL: A Standard Template Library for SystemVerilog (Nonsynthesizable)"
+    test_modules = [
+        bsg_async,
+        bsg_axi,
+        bsg_cache,
+        bsg_clk_gen,
+        bsg_dataflow,
+        bsg_dmc,
+        bsg_link,
+        bsg_mem,
+        bsg_noc,
+        bsg_tag,
+        bsg_test,
+    ]
+
+    test_incs = []
+    test_pkgs = []
+    test_srcs = []
+    test_errs = []
+
+    for module in test_modules:
+        test_srcs.extend([f"{module['root']}/{f}" for f in module["test"]])
+        test_errs.extend([f"{module['root']}/{f}" for f in module["errs"]])
+
+    test_yaml = gen_core_yaml(test_vlnv, test_desc, test_incs, test_pkgs, test_srcs)
+    dump_core_yaml(test_yaml, cores_root, preview)
+
+    fakeram = extract_submodule(basejump_stl_root, "hard/fakeram")
+    generic = extract_submodule(basejump_stl_root, "hard/generic")
+    gf_14 = extract_submodule(basejump_stl_root, "hard/gf_14")
+    pickle_40 = extract_submodule(basejump_stl_root, "hard/pickle_40")
+    saed_90 = extract_submodule(basejump_stl_root, "hard/saed_90")
+    tsmc_16 = extract_submodule(basejump_stl_root, "hard/tsmc_16")
+    tsmc_28 = extract_submodule(basejump_stl_root, "hard/tsmc_28")
+    tsmc_40 = extract_submodule(basejump_stl_root, "hard/tsmc_40")
+    tsmc_180_250 = extract_submodule(basejump_stl_root, "hard/tsmc_180_250")
+    ultrascale_plus = extract_submodule(basejump_stl_root, "hard/ultrascale_plus")
+
+    hard_vlnv = "bespoke-silicon-group:basejump_stl:hard:0.0.1"
+    hard_desc = "BaseJump STL: A Standard Template Library for SystemVerilog (Hardened)"
+    hard_modules = [
+        fakeram,
+        generic,
+        gf_14,
+        pickle_40,
+        saed_90,
+        tsmc_16,
+        tsmc_28,
+        tsmc_40,
+        tsmc_180_250,
+        ultrascale_plus,
+    ]
+
+    hard_incs = []
+    hard_pkgs = []
+    hard_srcs = []
+    hard_errs = []
+
+    for module in hard_modules:
+        hard_incs.extend([f"{module['root']}/{f}" for f in module["incs"]])
+        hard_pkgs.extend([f"{module['root']}/{f}" for f in module["pkgs"]])
+        hard_srcs.extend([f"{module['root']}/{f}" for f in module["srcs"]])
+        hard_errs.extend([f"{module['root']}/{f}" for f in module["errs"]])
+
+    hard_yaml = gen_core_yaml(hard_vlnv, hard_desc, hard_incs, hard_pkgs, hard_srcs)
+    dump_core_yaml(hard_yaml, cores_root, preview)
 
 
-#    core_yaml = gen_core_yaml(
-#        "bespoke-silicon-group:basejump_stl:bsg_misc:bsg_mux:0.0.1",
-#        "An M-input N-wide multiplexer",
-#        ["bsg_misc/bsg_defines.sv"],
-#        [],
-#        ["bsg_misc/bsg_mux.sv"],
-#        [("els_p", 2), ("width_p", 8)],
-#    )
-#    dump_core_yaml(core_yaml, cores_root, preview)
-#
 if __name__ == "__main__":
     main()

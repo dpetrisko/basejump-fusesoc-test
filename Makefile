@@ -46,11 +46,10 @@ endef
 ###################################################
 # Paths
 ###################################################
-CORES_DIR ?= $(TOP)/basejump_stl_cores
 VENV_DIR ?= $(TOP)/.venv
-IMPORT_DIR ?= $(TOP)/import
-SURELOG_DIR ?= $(IMPORT_DIR)/Surelog
-VERILATOR_DIR ?= $(IMPORT_DIR)/verilator
+BASEJUMP_CORES_DIR ?= $(TOP)/basejump_stl_cores
+BASEJUMP_REF_DIR ?= $(TOP)/basejump_stl_ref
+FUSESOC_CONF ?= $(TOP)/fusesoc.conf
 
 ###################################################
 # Commands
@@ -59,35 +58,23 @@ VENV_SCRIPT ?= $(VENV_DIR)/bin/activate
 VENV_ACTIVATE ?= source $(VENV_SCRIPT)
 PYTHON_RUN ?= $(VENV_ACTIVATE) && python
 
-SURELOG_BIN ?= $(VENV_DIR)/bin/surelog
-VERILATOR_BIN ?= $(VENV_DIR)/bin/verilator
-
 ###################################################
 # Helper Targets
 ###################################################
-%/surelog: | $(VENV_SCRIPT) $(SURELOG_DIR)/.git
-	@$(CD) $(SURELOG_DIR); $(VENV_ACTIVATE) && \
-		$(MAKE) release_with_python PREFIX=$(VENV_DIR)
+%/basejump_stl_ref:
+	@$(eval BASEJUMP_STL_URL := "https://github.com/bespoke-silicon-group/basejump_stl.git")
+	@$(eval BASEJUMP_STL_TAG := "v0.0.1")
+	@$(ECHO) "Cloning BaseJump STL"
+	@$(GIT) clone -b $(BASEJUMP_STL_TAG) --single-branch $(BASEJUMP_STL_URL) $@
 
-%/verilator: | $(VENV_SCRIPT) $(VERILATOR_DIR)/.git
-	@$(CD) $(VERILATOR_DIR); $(VENV_ACTIVATE) && \
-		$(AUTOCONF); \
-		./configure --prefix=$(VENV_DIR); \
-		$(MAKE) all; \
-		$(MAKE) install
-
-%/.git: | $(VENV_SCRIPT)
-	@$(GIT) submodule update \
-		--progress \
-		--init \
-		--recursive \
-		--recommend-shallow \
-		$(@D)
-
-%/bin/activate:
+%/bin/activate: $(BASEJUMP_REF_DIR)
 	@$(ECHO) "Creating python virtual environment"
 	@$(PYTHON) -m venv $(VENV_DIR)
 	@$(PYTHON_RUN) -m pip install -r requirements.txt
+
+$(FUSESOC_CONF):
+	@$(ECHO) "Adding fusesoc library"
+	@$(FUSESOC) library add $(BASEJUMP_CORES_DIR)
 
 ###################################################
 # User Targets
@@ -101,34 +88,37 @@ help: ## Prints this message
 
 .PHONY: setup
 setup: ## Setup the development environment
-setup:
-	@$(MAKE) $(VENV_SCRIPT)
-	@$(MAKE) $(SURELOG_BIN)
-	@$(MAKE) $(VERILATOR_BIN)
-
+setup: | $(VENV_SCRIPT)
+	
 .PHONY: preview
-preview: $(VENV_SCRIPT)
-preview: ## Generates a preview for bsg_misc cores
-	@$(ECHO) "Generating preview for bsg_misc cores"
-	@$(PYTHON_RUN) $(TOP)/gen_core.py --cores-root=$(CORES_DIR) --preview
+preview: | $(VENV_SCRIPT)
+preview: ## Generates a preview for basejump_stl cores
+	@$(ECHO) "Generating preview for basejump_stl cores"
+	@$(PYTHON_RUN) $(TOP)/gen_core.py --basejump-stl-root=$(BASEJUMP_REF_DIR) --cores-root=$(BASEJUMP_CORES_DIR) --preview
 
 .PHONY: gen
-gen: $(VENV_SCRIPT)
-gen: ## Generates bsg_misc cores
-	@$(ECHO) "Generating bsg_misc cores"
-	@$(PYTHON_RUN) $(TOP)/gen_core.py --cores-root=$(CORES_DIR)
+gen: | $(VENV_SCRIPT)
+gen: ## Generates basejump_stl cores
+	@$(ECHO) "Generating basejump_stl cores"
+	@$(PYTHON_RUN) $(TOP)/gen_core.py --basejump-stl-root=$(BASEJUMP_REF_DIR) --cores-root=$(BASEJUMP_CORES_DIR)
+
+.PHONY: init
+init: | $(VENV_SCRIPT)
+init: ## Initializes the fusesoc library
+	@$(ECHO) "Initializing fusesoc library"
+	@$(FUSESOC) library add $(BASEJUMP_CORES_DIR)
 
 .PHONY: update
-update: $(VENV_SCRIPT)
+update: | $(VENV_SCRIPT) $(FUSESOC_CONF)
 update: ## Updates the fusesoc library
 	@$(ECHO) "Updating fusesoc library"
 	@$(FUSESOC) library update
 
 .PHONY: clean
 clean: ## Cleans intermediate outputs
-	@if [ -d "$(CORES_DIR)" ]; then \
-		$(ECHO) "Removing $(CORES_DIR)"; \
-		$(RMRF) $(CORES_DIR); \
+	@if [ -d "$(BASEJUMP_CORES_DIR)" ]; then \
+		$(ECHO) "Removing $(BASEJUMP_CORES_DIR)"; \
+		$(RMRF) $(BASEJUMP_CORES_DIR); \
 	fi
 
 .PHONY: bleach
@@ -138,6 +128,12 @@ bleach: ## Destroys environment
 		$(ECHO) "Removing $(VENV_DIR)"; \
 		$(RMRF) $(VENV_DIR); \
 	fi
-	@$(ECHO) "Deinitializing submodules"
-	@$(GIT) submodule deinit -f $(IMPORT_DIR)
+	@if [ -d "$(BASEJUMP_REF_DIR)" ]; then \
+		$(ECHO) "Removing $(BASEJUMP_REF_DIR)"; \
+		$(RMRF) $(BASEJUMP_REF_DIR); \
+	fi
+	@if [ -f "$(FUSESOC_CONF)" ]; then \
+		$(ECHO) "Removing $(FUSESOC_CONF)"; \
+		$(RMRF) $(FUSESOC_CONF); \
+	fi
 	

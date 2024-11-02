@@ -4,4 +4,5 @@
 fusesoc.conf
 # generated files
 basejump_stl_cores/
+basejump_stl_ref/
 build/
